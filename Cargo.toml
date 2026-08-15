@@ -12,9 +12,14 @@ readme = "README.md"
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 serde = { version = "1.0.228", features = ["derive"] }
-evdev = { version = "0.13.2" }
-# sdl3 = { version = "0.18.4", features = ["build-from-source-static", "ttf"] }
 sdl3 = { version = "0.18.4", features = ["use-pkg-config", "ttf"] }
+env_logger = "0.11.11"
+
+evdev = { version = "0.13.2", optional = true }
+evdev-rs = { version = "0.6.3", optional = true }
 
 [features]
+default = ["evdev-rust"]
 static = ["sdl3/static-link"]
+evdev-native = ["dep:evdev-rs"]
+evdev-rust = ["dep:evdev"]

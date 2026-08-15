@@ -73,6 +73,7 @@
           pkg-config
           sdl3
           sdl3-ttf
+          libevdev
         ];
       };
     };
