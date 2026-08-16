@@ -7,18 +7,32 @@ use evdev::{AttributeSet, EventType, InputEvent, KeyCode, KeyEvent, RelativeAxis
 #[cfg(feature = "evdev-native")]
 use evdev_rs::{Device, DeviceWrapper, InputEvent, ReadFlag, UInputDevice, UninitDevice, enums::{BusType, EventCode, EventType, EV_KEY, EV_REL, EV_SYN}};
 
-use std::time::Duration;
+use serde::{Deserialize, Serialize};
+use std::{str::FromStr, time::Duration};
 use anyhow::Result;
 
 const PRESS_RELEASE_DELAY_MIN: Duration = Duration::from_millis(5);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum MouseKey {
     Left,
     Right,
     Middle
 }
 
+// TODO proper error
+impl FromStr for MouseKey {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "left" => Ok(Self::Left),
+            "right" => Ok(Self::Right),
+            "middle" => Ok(Self::Middle),
+            _ => Err(s.to_string())
+        }
+    }
+}
 
 #[cfg(feature = "evdev-rust")]
 impl MouseKey {

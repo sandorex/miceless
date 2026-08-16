@@ -17,6 +17,7 @@ env_logger = "0.11.11"
 
 evdev = { version = "0.13.2", optional = true }
 evdev-rs = { version = "0.6.3", optional = true }
+toml = "1.1.4"
 
 [features]
 default = ["evdev-rust"]

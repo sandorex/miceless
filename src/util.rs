@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Point {
     pub x: i32,
@@ -24,7 +26,7 @@ impl Into<sdl3::render::FPoint> for Point {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Direction4 {
     Top,
     Bottom,
@@ -44,7 +46,7 @@ impl Into<Direction8> for Direction4 {
 }
 
 /// Like `Direction` but with inbetween directions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Direction8 {
     Top,
     TopRight,
