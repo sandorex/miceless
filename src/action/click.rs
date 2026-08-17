@@ -15,7 +15,7 @@ impl ActionInfo for Click {
         if input.is_empty() {
             Err(ActionParseError::NotEnoughArguments)
         } else {
-            let mut iter = input.splitn(3, ',');
+            let mut iter = input.split_ascii_whitespace();
 
             let key = iter.next()
                 .ok_or_else(|| ActionParseError::ArgumentMissing("key".to_string()))?
@@ -66,4 +66,3 @@ impl Action for Click {
         Ok(())
     }
 }
-

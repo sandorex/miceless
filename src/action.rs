@@ -8,7 +8,7 @@ mod r#move;
 mod r#move_to;
 mod sleep;
 
-use std::{error::Error, fmt::{Debug, Display}, rc::Rc};
+use std::{error::Error, fmt::{Debug, Display}, sync::Arc};
 use anyhow::{Context, Result, anyhow};
 use std::{collections::HashMap, sync::LazyLock};
 
@@ -48,7 +48,7 @@ impl Display for ActionParseError {
 impl Error for ActionParseError {}
 
 /// Define what happens when action is executed
-pub trait Action: Debug {
+pub trait Action: Debug + Send + Sync {
     /// Serialize the action
     fn serialize(&self) -> String;
 
@@ -57,7 +57,7 @@ pub trait Action: Debug {
 }
 
 // NOTE this is separated so `Action` remains dyn-compatible
-trait ActionInfo: Sized {
+pub trait ActionInfo: Sized {
     /// Name of the action (ex. MoveTo -> move_to)
     const NAME: &str;
 
@@ -81,23 +81,23 @@ pub trait ActionFactory: Sync {
     fn signature(&self) -> &'static str;
 
     /// Parse input for arguments and construct the action
-    fn parse_args(&self, input: &str) -> Result<Rc<dyn Action>, ActionParseError>;
+    fn parse_args(&self, input: &str) -> Result<Arc<dyn Action>, ActionParseError>;
 }
 
 // TODO proper testing
-pub fn parse_action(input: &str) -> Result<Rc<dyn Action>> {
+pub fn parse_action(input: &str) -> Result<Arc<dyn Action>> {
     // take the action name
     let (name, args) = input.trim().split_once(' ').unwrap_or((input, ""));
 
     let action = ACTIONS_MAP
         .get(name)
-        .ok_or_else(|| anyhow!("invalid action {name}"))?;
+        .ok_or_else(|| anyhow!("invalid action {name:?}"))?;
 
     action.parse_args(args)
-        .with_context(|| anyhow!("error parsing action {name}'s arguments"))
+        .with_context(|| anyhow!("error parsing {name} arguments"))
 }
 
-pub fn parse_action_list(input: &str) -> Result<Vec<Rc<dyn Action>>> {
+pub fn parse_action_list(input: &str) -> Result<Vec<Arc<dyn Action>>> {
     input
         .trim()
         .split(';')
@@ -124,8 +124,8 @@ macro_rules! register_actions {
                     $name::SIGNATURE
                 }
 
-                fn parse_args(&self, input: &str) -> Result<Rc<dyn Action>, ActionParseError> {
-                    Ok(Rc::new($name::parse_args(input)?))
+                fn parse_args(&self, input: &str) -> Result<Arc<dyn Action>, ActionParseError> {
+                    Ok(Arc::new($name::parse_args(input)?))
                 }
             }
         )+

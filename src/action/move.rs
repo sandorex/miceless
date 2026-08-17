@@ -14,7 +14,7 @@ impl ActionInfo for Move {
         if input.is_empty() {
             Err(ActionParseError::NotEnoughArguments)
         } else {
-            let mut iter = input.splitn(3, ',');
+            let mut iter = input.split_ascii_whitespace();
 
             let x = iter.next()
                 .ok_or_else(|| ActionParseError::ArgumentMissing("x".to_string()))?

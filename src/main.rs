@@ -5,10 +5,11 @@ mod assets;
 mod action;
 
 use action::Action;
+use clap::Parser;
 use util::*;
 use anyhow::{anyhow, Result};
 use sdl3::{event::Event, keyboard::{Keycode, Mod}, pixels::Color, render::{TextureQuery, WindowCanvas}, video::WindowFlags};
-use std::{collections::HashMap, hash::Hash, rc::Rc, time::Duration};
+use std::{collections::HashMap, hash::Hash, sync::Arc, time::Duration};
 use crate::mouse::{FakeMouse, MouseKey};
 
 /// Combines SDL3 `Keycode` and `Mod` into one hashable struct
@@ -73,11 +74,11 @@ pub struct App<'a> {
     pub mouse: FakeMouse,
     pub mouse_position: Point,
     pub running: bool,
-    pub keybindings: HashMap<Keybinding, Vec<Rc<dyn Action>>>,
+    pub keybindings: HashMap<Keybinding, Vec<Arc<dyn Action>>>,
 }
 
 impl<'a> App<'a> {
-    pub fn new(keybindings: HashMap<Keybinding, Vec<Rc<dyn Action>>>) -> Result<Self> {
+    pub fn new(keybindings: HashMap<Keybinding, Vec<Arc<dyn Action>>>) -> Result<Self> {
         let sdl_context = sdl3::init().unwrap();
         let ttf_context = sdl3::ttf::init()?;
         let video_subsystem = sdl_context.video().unwrap();
@@ -223,17 +224,47 @@ impl<'a> App<'a> {
 }
 
 // TODO font license notice somewhere
-// TODO provide a mode where only fake mouse is created to disable acceleration...
 fn main() -> Result<()> {
     env_logger::init();
 
-    // TODO parse keybinding from string (ex. SHIFT- ALT- K)
-    let map = HashMap::from([
-        (Keybinding { key: Keycode::A, modifiers: Mod::NOMOD }, action::parse_action_list("show false; click left; quit")?),
-    ]);
+    let mut args = cli::Cli::parse();
+    let cmd = args.cmd.take();
 
-    let mut app = App::new(map)?;
-    app.main_loop()?;
+    match cmd {
+        Some(cli::CliCommands::Configure) => {
+            let _mouse = FakeMouse::new()?;
+
+            println!("Fake mouse device has been created with name {:?}, now configure any options you want in your system settings.\n\nPress ENTER to close", "miceless");
+
+            // wait for the user to press enter
+            let mut buffer = String::new();
+            std::io::stdin().read_line(&mut buffer).unwrap();
+        },
+        Some(cli::CliCommands::Script(script)) => {
+            let input = script.action_list.join(" ");
+            let action_list = action::parse_action_list(&input)?;
+
+            // TODO make App work without a window so this could work properly
+            // for i in action_list {
+            //     i.execute(app);
+            // }
+            dbg!(&action_list);
+        },
+        None => {
+            // TODO default keybindings and load from config file..
+            let mut app = App::new(HashMap::new())?;
+            app.main_loop()?;
+        },
+        _ => todo!(),
+    }
+
+    // // TODO parse keybinding from string (ex. SHIFT- ALT- K)
+    // let map = HashMap::from([
+    //     (Keybinding { key: Keycode::A, modifiers: Mod::NOMOD }, action::parse_action_list("show false; click left; quit")?),
+    // ]);
+    //
+    // let mut app = App::new(map)?;
+    // app.main_loop()?;
 
     Ok(())
 }

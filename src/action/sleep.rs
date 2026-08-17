@@ -15,7 +15,7 @@ WARNING: current implementation freezes whole application so it won't respond to
         if input.is_empty() {
             Err(ActionParseError::NotEnoughArguments)
         } else {
-            let mut iter = input.splitn(2, ',');
+            let mut iter = input.split_ascii_whitespace();
 
             let sleep = iter.next()
                 .ok_or_else(|| ActionParseError::ArgumentMissing("sleep".to_string()))?
