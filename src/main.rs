@@ -9,7 +9,7 @@ use clap::Parser;
 use util::*;
 use anyhow::{anyhow, Result};
 use sdl3::{event::Event, keyboard::{Keycode, Mod}, pixels::Color, render::{TextureQuery, WindowCanvas}, video::WindowFlags};
-use std::{collections::HashMap, hash::Hash, sync::Arc, time::Duration};
+use std::{collections::HashMap, hash::Hash, str::FromStr, sync::Arc, time::Duration};
 use crate::mouse::{FakeMouse, MouseKey};
 
 /// Combines SDL3 `Keycode` and `Mod` into one hashable struct
@@ -19,6 +19,49 @@ pub struct Keybinding {
     pub modifiers: Mod,
 }
 
+// TODO write proper tests
+impl FromStr for Keybinding {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let mut parts: Vec<_> = s.split('-').collect();
+        let key = parts.pop().unwrap();
+
+        let mut modifiers = Mod::empty();
+        for mod_name in &parts {
+            match mod_name.to_lowercase().as_str() {
+                "lctrl" => modifiers.insert(Mod::LCTRLMOD),
+                "rctrl" => modifiers.insert(Mod::RCTRLMOD),
+                "ctrl" | "c" => modifiers.insert(Mod::LCTRLMOD | Mod::RCTRLMOD),
+
+                "lshift" => modifiers.insert(Mod::LSHIFTMOD),
+                "rshift" => modifiers.insert(Mod::RSHIFTMOD),
+                "shift" | "s" => modifiers.insert(Mod::LSHIFTMOD | Mod::RSHIFTMOD),
+
+                "lalt" => modifiers.insert(Mod::LALTMOD),
+                "ralt" => modifiers.insert(Mod::RALTMOD),
+                "alt" | "a" => modifiers.insert(Mod::LALTMOD | Mod::RALTMOD),
+
+                "lmeta" => modifiers.insert(Mod::LGUIMOD),
+                "rmeta" => modifiers.insert(Mod::RGUIMOD),
+                "meta" | "m" => modifiers.insert(Mod::LGUIMOD | Mod::RGUIMOD),
+
+                _ => return Err(format!("Invalid key modifiers {s:?}")),
+            }
+        }
+
+        let keycode = Keycode::from_name(key)
+            .ok_or_else(|| format!("Invalid keycode {s:?}"))?;
+
+        Ok(Keybinding {
+            key: keycode,
+            modifiers,
+        })
+    }
+}
+
+// TODO make sure keybindings with specific modifier and general modifiers are the same
+// LSHIFT == SHIFT == RSHIFT etc
 impl PartialEq for Keybinding {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key && self.modifiers == other.modifiers
@@ -75,6 +118,7 @@ pub struct App<'a> {
     pub mouse_position: Point,
     pub running: bool,
     pub keybindings: HashMap<Keybinding, Vec<Arc<dyn Action>>>,
+    pub update_requested: bool,
 }
 
 impl<'a> App<'a> {
@@ -110,6 +154,7 @@ impl<'a> App<'a> {
             mouse_position: Default::default(),
             running: true,
             keybindings,
+            update_requested: false,
         };
 
         Ok(app)
@@ -172,6 +217,11 @@ impl<'a> App<'a> {
                     // }
                     _ => {}
                 }
+            }
+
+            if self.update_requested {
+                self.update_requested = false;
+                self.draw()?;
             }
 
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
@@ -252,10 +302,9 @@ fn main() -> Result<()> {
         },
         None => {
             // TODO default keybindings and load from config file..
-            let mut app = App::new(HashMap::new())?;
+            let mut app = App::new(default_keybindings())?;
             app.main_loop()?;
         },
-        _ => todo!(),
     }
 
     // // TODO parse keybinding from string (ex. SHIFT- ALT- K)
@@ -267,4 +316,29 @@ fn main() -> Result<()> {
     // app.main_loop()?;
 
     Ok(())
+}
+
+// NOTE this function is a separate function so it could be tested
+fn default_keybindings() -> HashMap<Keybinding, Vec<Arc<dyn Action>>> {
+    HashMap::from([
+        (Keybinding::from_str("1").unwrap(), action::parse_action_list("grid 3 3 0 0").unwrap()),
+        (Keybinding::from_str("2").unwrap(), action::parse_action_list("grid 3 3 1 0").unwrap()),
+        (Keybinding::from_str("3").unwrap(), action::parse_action_list("grid 3 3 2 0").unwrap()),
+        (Keybinding::from_str("4").unwrap(), action::parse_action_list("grid 3 3 0 1").unwrap()),
+        (Keybinding::from_str("5").unwrap(), action::parse_action_list("grid 3 3 1 1").unwrap()),
+        (Keybinding::from_str("6").unwrap(), action::parse_action_list("grid 3 3 2 1").unwrap()),
+        (Keybinding::from_str("7").unwrap(), action::parse_action_list("grid 3 3 0 2").unwrap()),
+        (Keybinding::from_str("8").unwrap(), action::parse_action_list("grid 3 3 1 2").unwrap()),
+        (Keybinding::from_str("9").unwrap(), action::parse_action_list("grid 3 3 2 2").unwrap()),
+
+        (Keybinding::from_str("SHIFT-RETURN").unwrap(), action::parse_action_list("show 0; center; quit").unwrap()),
+        (Keybinding::from_str("RETURN").unwrap(), action::parse_action_list("show 0; center; click left; quit").unwrap()),
+        (Keybinding::from_str("CTRL-RETURN").unwrap(), action::parse_action_list("show 0; center; click right; quit").unwrap()),
+        (Keybinding::from_str("ALT-RETURN").unwrap(), action::parse_action_list("show 0; center; click middle; quit").unwrap()),
+    ])
+}
+
+#[test]
+fn test_default_keybindings() {
+    assert!(default_keybindings().len() > 0, "default keybindings are invalid");
 }
