@@ -11,19 +11,25 @@ pub struct Cli {
     pub cmd: Option<CliCommands>,
 }
 
+// TODO mode where each key pressed is printed so configuration is easier to do
 #[derive(Subcommand, Debug, Clone)]
 pub enum CliCommands {
     /// Creates fake mouse so you can configure it in the desktop environment
     Configure,
 
     /// Runs sequence of actions without the window
+    ///
+    /// Note that you can use `,` in place of ';'
     Script(CmdScript),
+
+    /// Lists all actions with information about them
+    Actions,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct CmdScript {
     /// Actions to execute in sequence
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
     pub action_list: Vec<String>,
 }
 

@@ -13,7 +13,7 @@ use anyhow::Result;
 
 const PRESS_RELEASE_DELAY_MIN: Duration = Duration::from_millis(5);
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MouseKey {
     Left,
     Right,
@@ -30,7 +30,6 @@ impl Display for MouseKey {
     }
 }
 
-// TODO proper error
 impl FromStr for MouseKey {
     type Err = String;
 
@@ -39,7 +38,7 @@ impl FromStr for MouseKey {
             "left" | "1" => Ok(Self::Left),
             "right" | "2" => Ok(Self::Right),
             "middle" | "3" => Ok(Self::Middle),
-            _ => Err(s.to_string())
+            _ => Err(format!("Invalid mouse key {s:?}"))
         }
     }
 }

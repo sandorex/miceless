@@ -10,7 +10,7 @@ use util::*;
 use anyhow::{anyhow, Result};
 use sdl3::{event::Event, keyboard::{Keycode, Mod}, pixels::Color, render::{TextureQuery, WindowCanvas}, video::WindowFlags};
 use std::{collections::HashMap, hash::Hash, str::FromStr, sync::Arc, time::Duration};
-use crate::mouse::{FakeMouse, MouseKey};
+use crate::{action::ActionList, mouse::{FakeMouse, MouseKey}};
 
 /// Combines SDL3 `Keycode` and `Mod` into one hashable struct
 #[derive(Debug, Clone, Copy)]
@@ -117,12 +117,14 @@ pub struct App<'a> {
     pub mouse: FakeMouse,
     pub mouse_position: Point,
     pub running: bool,
-    pub keybindings: HashMap<Keybinding, Vec<Arc<dyn Action>>>,
+    pub keybindings: HashMap<Keybinding, ActionList>,
     pub update_requested: bool,
 }
 
+// TODO rework it so window is optional so 'script' command could access it but the window is hidden
+// by default
 impl<'a> App<'a> {
-    pub fn new(keybindings: HashMap<Keybinding, Vec<Arc<dyn Action>>>) -> Result<Self> {
+    pub fn new(keybindings: HashMap<Keybinding, ActionList>) -> Result<Self> {
         let sdl_context = sdl3::init().unwrap();
         let ttf_context = sdl3::ttf::init()?;
         let video_subsystem = sdl_context.video().unwrap();
@@ -138,8 +140,6 @@ impl<'a> App<'a> {
         // TODO i do not know if this gets proper size of the monitor as both my monitors are same
         // resolution
         let output_size = window.canvas.output_size()?;
-        dbg!(&output_size);
-
         let full_rect = Rect::new(0, 0, output_size.0.try_into().unwrap(), output_size.1.try_into().unwrap()); // TODO remove unwraps
 
         let app = Self {
@@ -198,7 +198,7 @@ impl<'a> App<'a> {
 
                         // execute all actions in sequence
                         if let Some(actions) = self.keybindings.get(&key).cloned() {
-                            for action in actions {
+                            for action in actions.0 {
                                 action.execute(self)?;
 
                                 // TODO is this delay enoguh?
@@ -209,12 +209,6 @@ impl<'a> App<'a> {
                     Event::MouseMotion { x, y, .. } => {
                         self.mouse_position = Point::new(x.round_ties_even() as i32, y.round_ties_even() as i32);
                     },
-                    // TODO if i enable this then clicking via actions would close the window and
-                    // confuse the user
-                    // Event::MouseButtonUp { .. } | Event::MouseButtonDown { .. } => {
-                    //     self.running = false;
-                    //     break
-                    // }
                     _ => {}
                 }
             }
@@ -253,6 +247,7 @@ impl<'a> App<'a> {
         canvas.draw_rect(outline)?;
         canvas.draw_point(center)?;
 
+        // TODO disable it based on area of a single square
         // do not draw the grid if too small of rectangle
         if rect.area() > 500 {
             // the 3x3 grid
@@ -291,14 +286,24 @@ fn main() -> Result<()> {
             std::io::stdin().read_line(&mut buffer).unwrap();
         },
         Some(cli::CliCommands::Script(script)) => {
-            let input = script.action_list.join(" ");
-            let action_list = action::parse_action_list(&input)?;
+            let input = script.action_list
+                .join(" ")
+                .replace(",", ";"); // semicolon has to be escaped in shell so
+            let action_list = input.parse::<ActionList>();
 
             // TODO make App work without a window so this could work properly
             // for i in action_list {
             //     i.execute(app);
             // }
             dbg!(&action_list);
+        },
+        Some(cli::CliCommands::Actions) => {
+            for (name, usage, help) in Action::get_actions() {
+                if !help.is_empty() {
+                    println!("/// {help}");
+                }
+                println!("{name} {usage}\n");
+            }
         },
         None => {
             // TODO default keybindings and load from config file..
@@ -307,34 +312,26 @@ fn main() -> Result<()> {
         },
     }
 
-    // // TODO parse keybinding from string (ex. SHIFT- ALT- K)
-    // let map = HashMap::from([
-    //     (Keybinding { key: Keycode::A, modifiers: Mod::NOMOD }, action::parse_action_list("show false; click left; quit")?),
-    // ]);
-    //
-    // let mut app = App::new(map)?;
-    // app.main_loop()?;
-
     Ok(())
 }
 
 // NOTE this function is a separate function so it could be tested
-fn default_keybindings() -> HashMap<Keybinding, Vec<Arc<dyn Action>>> {
+fn default_keybindings() -> HashMap<Keybinding, ActionList> {
     HashMap::from([
-        (Keybinding::from_str("1").unwrap(), action::parse_action_list("grid 3 3 0 0").unwrap()),
-        (Keybinding::from_str("2").unwrap(), action::parse_action_list("grid 3 3 1 0").unwrap()),
-        (Keybinding::from_str("3").unwrap(), action::parse_action_list("grid 3 3 2 0").unwrap()),
-        (Keybinding::from_str("4").unwrap(), action::parse_action_list("grid 3 3 0 1").unwrap()),
-        (Keybinding::from_str("5").unwrap(), action::parse_action_list("grid 3 3 1 1").unwrap()),
-        (Keybinding::from_str("6").unwrap(), action::parse_action_list("grid 3 3 2 1").unwrap()),
-        (Keybinding::from_str("7").unwrap(), action::parse_action_list("grid 3 3 0 2").unwrap()),
-        (Keybinding::from_str("8").unwrap(), action::parse_action_list("grid 3 3 1 2").unwrap()),
-        (Keybinding::from_str("9").unwrap(), action::parse_action_list("grid 3 3 2 2").unwrap()),
-
-        (Keybinding::from_str("SHIFT-RETURN").unwrap(), action::parse_action_list("show 0; center; quit").unwrap()),
-        (Keybinding::from_str("RETURN").unwrap(), action::parse_action_list("show 0; center; click left; quit").unwrap()),
-        (Keybinding::from_str("CTRL-RETURN").unwrap(), action::parse_action_list("show 0; center; click right; quit").unwrap()),
-        (Keybinding::from_str("ALT-RETURN").unwrap(), action::parse_action_list("show 0; center; click middle; quit").unwrap()),
+        (Keybinding::from_str("1").unwrap(), "grid 3 3 0 0".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("2").unwrap(), "grid 3 3 1 0".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("3").unwrap(), "grid 3 3 2 0".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("4").unwrap(), "grid 3 3 0 1".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("5").unwrap(), "grid 3 3 1 1".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("6").unwrap(), "grid 3 3 2 1".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("7").unwrap(), "grid 3 3 0 2".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("8").unwrap(), "grid 3 3 1 2".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("9").unwrap(), "grid 3 3 2 2".parse::<ActionList>().unwrap()),
+        //
+        (Keybinding::from_str("SHIFT-RETURN").unwrap(), "hide; move_to_center; quit".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("RETURN").unwrap(), "hide; move_to_center; click left; quit".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("CTRL-RETURN").unwrap(), "hide; move_to_center; click right; quit".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("ALT-RETURN").unwrap(), "hide; move_to_center; click middle; quit".parse::<ActionList>().unwrap()),
     ])
 }
 
