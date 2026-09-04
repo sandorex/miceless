@@ -14,6 +14,7 @@ clap = { version = "4.6.1", features = ["derive", "env"] }
 serde = { version = "1.0.228", features = ["derive"] }
 sdl3 = { version = "0.18.4", features = ["use-pkg-config", "ttf"] }
 env_logger = "0.11.11"
+bitflags = "2.13.1"
 
 evdev = { version = "0.13.2", optional = true }
 evdev-rs = { version = "0.6.3", optional = true }

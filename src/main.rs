@@ -11,12 +11,111 @@ use anyhow::{anyhow, Result};
 use sdl3::{event::Event, keyboard::{Keycode, Mod}, pixels::Color, render::{TextureQuery, WindowCanvas}, video::WindowFlags};
 use std::{collections::HashMap, hash::Hash, str::FromStr, sync::Arc, time::Duration};
 use crate::{action::ActionList, mouse::{FakeMouse, MouseKey}};
+use bitflags::bitflags;
+
+// TODO write an enum for Keycode that converts to/from sdl keycode
+
+// NOTE im doing this as i may replace SDL in the future
+bitflags! {
+    /// Represents key modifiers
+    #[derive(Debug, Clone, Copy, Eq, Hash)]
+    pub struct KeyMod: u16 {
+        const LCTRL     = 1;
+        const RCTRL     = 1 << 1;
+        const CTRL      = 1 | 1 << 1;
+
+        const LSHIFT    = 1 << 2;
+        const RSHIFT    = 1 << 3;
+        const SHIFT     = 1 << 2 | 1 << 3;
+
+        const LALT      = 1 << 4;
+        const RALT      = 1 << 5;
+        const ALT       = 1 << 4 | 1 << 5;
+
+        const LMETA     = 1 << 6;
+        const RMETA     = 1 << 7;
+        const META      = 1 << 6 | 1 << 7;
+    }
+}
+
+impl From<sdl3::keyboard::Mod> for KeyMod {
+    fn from(value: sdl3::keyboard::Mod) -> Self {
+        use sdl3::keyboard::Mod;
+
+        let mut output = Self::empty();
+
+        output.set(Self::LCTRL, value.contains(Mod::LCTRLMOD));
+        output.set(Self::RCTRL, value.contains(Mod::RCTRLMOD));
+        output.set(Self::LSHIFT, value.contains(Mod::LSHIFTMOD));
+        output.set(Self::RSHIFT, value.contains(Mod::RSHIFTMOD));
+        output.set(Self::LALT, value.contains(Mod::LALTMOD));
+        output.set(Self::RALT, value.contains(Mod::RALTMOD));
+        output.set(Self::LMETA, value.contains(Mod::LGUIMOD));
+        output.set(Self::RMETA, value.contains(Mod::RGUIMOD));
+
+        output
+    }
+}
+
+// TODO proper tests
+impl PartialEq for KeyMod {
+    fn eq(&self, other: &Self) -> bool {
+        let cmp = |flag| -> bool {
+            // NOTE check if either contains the flag for both LEFT and RIGHT variant
+            self.contains(flag) == other.intersects(flag)
+                || other.contains(flag) == self.intersects(flag)
+                || self.intersection(flag).bits() == other.intersection(flag).bits()
+        };
+
+        cmp(Self::CTRL)
+            && cmp(Self::SHIFT)
+            && cmp(Self::ALT)
+            && cmp(Self::META)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::KeyMod;
+
+    #[test]
+    fn test_keymod_eq() {
+        assert_eq!(KeyMod::CTRL, KeyMod::LCTRL);
+        assert_eq!(KeyMod::CTRL, KeyMod::RCTRL);
+        assert_eq!(KeyMod::CTRL, KeyMod::LCTRL);
+        assert_eq!(KeyMod::CTRL, KeyMod::RCTRL);
+        assert_eq!(KeyMod::LCTRL, KeyMod::LCTRL);
+        assert_ne!(KeyMod::LCTRL, KeyMod::RCTRL);
+
+        assert_eq!(KeyMod::SHIFT, KeyMod::LSHIFT);
+        assert_eq!(KeyMod::SHIFT, KeyMod::RSHIFT);
+        assert_eq!(KeyMod::LSHIFT, KeyMod::LSHIFT);
+        assert_ne!(KeyMod::LSHIFT, KeyMod::RSHIFT);
+
+        assert_eq!(KeyMod::ALT, KeyMod::LALT);
+        assert_eq!(KeyMod::ALT, KeyMod::RALT);
+        assert_eq!(KeyMod::LALT, KeyMod::LALT);
+        assert_ne!(KeyMod::LALT, KeyMod::RALT);
+
+        assert_eq!(KeyMod::META, KeyMod::LMETA);
+        assert_eq!(KeyMod::META, KeyMod::RMETA);
+        assert_eq!(KeyMod::LMETA, KeyMod::LMETA);
+        assert_ne!(KeyMod::LMETA, KeyMod::RMETA);
+
+        assert_eq!(KeyMod::LSHIFT | KeyMod::ALT, KeyMod::LSHIFT | KeyMod::RALT);
+        assert_eq!(KeyMod::LSHIFT , KeyMod::SHIFT);
+        assert_eq!(KeyMod::RSHIFT , KeyMod::SHIFT);
+        assert_eq!(KeyMod::SHIFT , KeyMod::SHIFT);
+        assert_eq!(KeyMod::SHIFT , KeyMod::LSHIFT);
+        assert_eq!(KeyMod::SHIFT , KeyMod::RSHIFT);
+    }
+}
 
 /// Combines SDL3 `Keycode` and `Mod` into one hashable struct
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Keybinding {
     pub key: Keycode,
-    pub modifiers: Mod,
+    pub modifiers: KeyMod,
 }
 
 // TODO write proper tests
@@ -27,24 +126,24 @@ impl FromStr for Keybinding {
         let mut parts: Vec<_> = s.split('-').collect();
         let key = parts.pop().unwrap();
 
-        let mut modifiers = Mod::empty();
+        let mut modifiers = KeyMod::empty();
         for mod_name in &parts {
             match mod_name.to_lowercase().as_str() {
-                "lctrl" => modifiers.insert(Mod::LCTRLMOD),
-                "rctrl" => modifiers.insert(Mod::RCTRLMOD),
-                "ctrl" | "c" => modifiers.insert(Mod::LCTRLMOD | Mod::RCTRLMOD),
+                "lctrl" => modifiers.insert(KeyMod::LCTRL),
+                "rctrl" => modifiers.insert(KeyMod::RCTRL),
+                "ctrl" | "c" => modifiers.insert(KeyMod::CTRL),
 
-                "lshift" => modifiers.insert(Mod::LSHIFTMOD),
-                "rshift" => modifiers.insert(Mod::RSHIFTMOD),
-                "shift" | "s" => modifiers.insert(Mod::LSHIFTMOD | Mod::RSHIFTMOD),
+                "lshift" => modifiers.insert(KeyMod::LSHIFT),
+                "rshift" => modifiers.insert(KeyMod::RSHIFT),
+                "shift" | "s" => modifiers.insert(KeyMod::SHIFT),
 
-                "lalt" => modifiers.insert(Mod::LALTMOD),
-                "ralt" => modifiers.insert(Mod::RALTMOD),
-                "alt" | "a" => modifiers.insert(Mod::LALTMOD | Mod::RALTMOD),
+                "lalt" => modifiers.insert(KeyMod::LALT),
+                "ralt" => modifiers.insert(KeyMod::RALT),
+                "alt" | "a" => modifiers.insert(KeyMod::ALT),
 
-                "lmeta" => modifiers.insert(Mod::LGUIMOD),
-                "rmeta" => modifiers.insert(Mod::RGUIMOD),
-                "meta" | "m" => modifiers.insert(Mod::LGUIMOD | Mod::RGUIMOD),
+                "lmeta" => modifiers.insert(KeyMod::LMETA),
+                "rmeta" => modifiers.insert(KeyMod::RMETA),
+                "meta" | "m" => modifiers.insert(KeyMod::META),
 
                 _ => return Err(format!("Invalid key modifiers {s:?}")),
             }
@@ -55,20 +154,20 @@ impl FromStr for Keybinding {
 
         Ok(Keybinding {
             key: keycode,
-            modifiers,
+            modifiers: modifiers.into(),
         })
     }
 }
 
-// TODO make sure keybindings with specific modifier and general modifiers are the same
-// LSHIFT == SHIFT == RSHIFT etc
-impl PartialEq for Keybinding {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key && self.modifiers == other.modifiers
-    }
-}
+// // TODO make sure keybindings with specific modifier and general modifiers are the same
+// // LSHIFT == SHIFT == RSHIFT etc
+// impl PartialEq for Keybinding {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.key == other.key && (self.modifiers == other.modifiers)
+//     }
+// }
 
-impl Eq for Keybinding {}
+// impl Eq for Keybinding {}
 
 impl Hash for Keybinding {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -121,8 +220,6 @@ pub struct App<'a> {
     pub update_requested: bool,
 }
 
-// TODO rework it so window is optional so 'script' command could access it but the window is hidden
-// by default
 impl<'a> App<'a> {
     pub fn new(keybindings: HashMap<Keybinding, ActionList>) -> Result<Self> {
         let sdl_context = sdl3::init().unwrap();
@@ -135,12 +232,10 @@ impl<'a> App<'a> {
 
         let mouse = FakeMouse::new()?;
 
-        let window = Window::new(&video_subsystem)?;
-
         // TODO i do not know if this gets proper size of the monitor as both my monitors are same
         // resolution
-        let output_size = window.canvas.output_size()?;
-        let full_rect = Rect::new(0, 0, output_size.0.try_into().unwrap(), output_size.1.try_into().unwrap()); // TODO remove unwraps
+        let output_size = video_subsystem.get_primary_display()?.get_bounds()?;
+        let full_rect = Rect::new(0, 0, output_size.w, output_size.h);
 
         let app = Self {
             sdl_context,
@@ -150,7 +245,7 @@ impl<'a> App<'a> {
             mouse,
             full_rect,
             rect: full_rect,
-            window: Some(window),
+            window: None,
             mouse_position: Default::default(),
             running: true,
             keybindings,
@@ -193,18 +288,33 @@ impl<'a> App<'a> {
                     Event::KeyUp { keycode: Some(keycode), keymod, .. } => {
                         let key = Keybinding {
                             key: keycode,
-                            modifiers: keymod,
+                            modifiers: keymod.into(),
                         };
 
-                        // execute all actions in sequence
-                        if let Some(actions) = self.keybindings.get(&key).cloned() {
-                            for action in actions.0 {
+                        // TODO im finding it instead of using hashmap get cause keymod hash is
+                        // impossible to get right
+                        if let Some((_, actions)) = self.keybindings.iter().find(|(x, _)| **x == key) {
+                            for action in actions.0.clone() {
+                                println!("Executing {action:?}");
+
                                 action.execute(self)?;
 
-                                // TODO is this delay enoguh?
+                                // TODO is this delay enough?
                                 std::thread::sleep(Duration::from_millis(5));
                             }
                         }
+
+                        // // execute all actions in sequence
+                        // if let Some(actions) = self.keybindings.get(&key).cloned() {
+                        //     for action in actions.0 {
+                        //         println!("Executing {action:?}");
+                        //
+                        //         action.execute(self)?;
+                        //
+                        //         // TODO is this delay enoguh?
+                        //         std::thread::sleep(Duration::from_millis(5));
+                        //     }
+                        // }
                     },
                     Event::MouseMotion { x, y, .. } => {
                         self.mouse_position = Point::new(x.round_ties_even() as i32, y.round_ties_even() as i32);
@@ -286,16 +396,18 @@ fn main() -> Result<()> {
             std::io::stdin().read_line(&mut buffer).unwrap();
         },
         Some(cli::CliCommands::Script(script)) => {
+            // TODO should script mode load keybindings?
+            let mut app = App::new(HashMap::new())?;
+
             let input = script.action_list
                 .join(" ")
                 .replace(",", ";"); // semicolon has to be escaped in shell so
-            let action_list = input.parse::<ActionList>();
+            let action_list = input.parse::<ActionList>()
+                .map_err(|x| anyhow!("{x}"))?;
 
-            // TODO make App work without a window so this could work properly
-            // for i in action_list {
-            //     i.execute(app);
-            // }
-            dbg!(&action_list);
+            for action in action_list.0 {
+                action.execute(&mut app)?;
+            }
         },
         Some(cli::CliCommands::Actions) => {
             for (name, usage, help) in Action::get_actions() {
@@ -308,6 +420,7 @@ fn main() -> Result<()> {
         None => {
             // TODO default keybindings and load from config file..
             let mut app = App::new(default_keybindings())?;
+            app.open_window()?;
             app.main_loop()?;
         },
     }
@@ -332,6 +445,8 @@ fn default_keybindings() -> HashMap<Keybinding, ActionList> {
         (Keybinding::from_str("RETURN").unwrap(), "hide; move_to_center; click left; quit".parse::<ActionList>().unwrap()),
         (Keybinding::from_str("CTRL-RETURN").unwrap(), "hide; move_to_center; click right; quit".parse::<ActionList>().unwrap()),
         (Keybinding::from_str("ALT-RETURN").unwrap(), "hide; move_to_center; click middle; quit".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("SHIFT-UP").unwrap(), "hide; scroll 0 100; show".parse::<ActionList>().unwrap()),
+        (Keybinding::from_str("SHIFT-DOWN").unwrap(), "hide;scroll 0 -100; show".parse::<ActionList>().unwrap()),
     ])
 }
 

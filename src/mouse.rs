@@ -8,12 +8,12 @@ use evdev::{AttributeSet, EventType, InputEvent, KeyCode, KeyEvent, RelativeAxis
 use evdev_rs::{Device, DeviceWrapper, InputEvent, ReadFlag, UInputDevice, UninitDevice, enums::{BusType, EventCode, EventType, EV_KEY, EV_REL, EV_SYN}};
 
 use serde::{Deserialize, Serialize};
-use std::{fmt::{Display, Write}, str::FromStr, time::Duration};
+use std::{collections::HashSet, fmt::{Display, Write}, str::FromStr, time::Duration};
 use anyhow::Result;
 
 const PRESS_RELEASE_DELAY_MIN: Duration = Duration::from_millis(5);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MouseKey {
     Left,
     Right,
@@ -79,6 +79,9 @@ pub struct FakeMouse {
 
     #[cfg(feature = "evdev-native")]
     device: UInputDevice,
+
+    /// Keep track of pressed keys to release them automatically
+    pressed: HashSet<MouseKey>,
 }
 
 // TODO scroll
@@ -105,6 +108,7 @@ impl FakeMouse {
 
             Ok(Self {
                 device,
+                pressed: HashSet::new(),
             })
         }
 
@@ -133,6 +137,7 @@ impl FakeMouse {
 
             Ok(Self {
                 device,
+                pressed: HashSet::new(),
             })
         }
     }
@@ -188,7 +193,7 @@ impl FakeMouse {
         Ok(())
     }
 
-    pub fn press(&mut self, key: MouseKey) -> Result<()> {
+    pub fn press(&mut self, key: &MouseKey) -> Result<()> {
         #[cfg(feature = "evdev-rust")]
         {
             let event = *KeyEvent::new(KeyCode(key.keycode()), 1);
@@ -216,10 +221,12 @@ impl FakeMouse {
             })?;
         }
 
+        self.pressed.insert(*key);
+
         Ok(())
     }
 
-    pub fn release(&mut self, key: MouseKey) -> Result<()> {
+    pub fn release(&mut self, key: &MouseKey) -> Result<()> {
         #[cfg(feature = "evdev-rust")]
         {
             let event = *KeyEvent::new(KeyCode(key.keycode()), 0);
@@ -247,16 +254,29 @@ impl FakeMouse {
             })?;
         }
 
+        self.pressed.remove(key);
+
         Ok(())
     }
 
     pub fn click(&mut self, key: MouseKey, hold_time: Option<Duration>) -> Result<()> {
-        self.press(key)?;
+        self.press(&key)?;
 
         // wait
         std::thread::sleep(hold_time.unwrap_or(PRESS_RELEASE_DELAY_MIN));
 
-        self.release(key)?;
+        self.release(&key)?;
+
+        Ok(())
+    }
+
+    // TODO do the evdev-native
+    #[cfg(feature = "evdev-rust")]
+    pub fn scroll(&mut self, x: i32, y: i32) -> Result<()> {
+        self.device.emit(&[
+            InputEvent::new(EventType::RELATIVE.0, RelativeAxisCode::REL_HWHEEL.0, x),
+            InputEvent::new(EventType::RELATIVE.0, RelativeAxisCode::REL_WHEEL.0, y),
+        ])?;
 
         Ok(())
     }
@@ -264,5 +284,16 @@ impl FakeMouse {
     /// Sleep for predetermined time, used for delay between mouse actions
     pub fn sleep(&self) {
         std::thread::sleep(PRESS_RELEASE_DELAY_MIN);
+    }
+}
+
+// TODO is this necessary?
+// make sure all keys that are pressed are released before deleteing the device
+impl Drop for FakeMouse {
+    fn drop(&mut self) {
+        let pressed = std::mem::take(&mut self.pressed);
+        for key in pressed {
+            self.release(&key);
+        }
     }
 }

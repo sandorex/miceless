@@ -21,6 +21,12 @@ pub enum Action {
     /// Press a mouse button and release it after a delay, essentially a click
     Click(ActionClick),
 
+    /// Press a mouse button
+    Press(ActionPress),
+
+    /// Release a mouse button
+    Release(ActionPress),
+
     /// Show the window
     Show,
 
@@ -39,8 +45,15 @@ pub enum Action {
     /// Move the mouse to an absolute position on screen
     MoveTo(ActionMove),
 
+    /// Scroll by an amount
+    Scroll(ActionMove),
+
     /// Sleep for a duration (currently freezes the whole application)
     Sleep(ActionSleep),
+
+    // TODO
+    // /// Resets the rectangle
+    // Reset,
 
     /// Pick a part of the window split into a grid
     Grid(ActionGrid),
@@ -55,6 +68,11 @@ pub struct ActionClick {
 }
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct ActionPress {
+    pub key: MouseKey,
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct ActionShow {
     /// Whether to show the window
     #[clap(action = clap::ArgAction::Set, value_name = "TRUE|FALSE")]
@@ -63,7 +81,10 @@ pub struct ActionShow {
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct ActionMove {
+    #[arg(allow_hyphen_values = true)]
     pub x: i32,
+
+    #[arg(allow_hyphen_values = true)]
     pub y: i32,
 }
 
@@ -125,6 +146,8 @@ impl Action {
 
         match self {
             Self::Click(ActionClick { key, delay }) => app.mouse.click(*key, Some(Duration::from_millis(*delay as u64)))?,
+            Self::Press(ActionPress { key }) => app.mouse.press(key)?,
+            Self::Release(ActionPress { key }) => app.mouse.release(key)?,
             Self::Show => app.open_window()?,
             Self::Hide => app.close_window()?,
             Self::Quit => app.running = false,
@@ -133,6 +156,7 @@ impl Action {
                 app.mouse.reset_position()?;
                 app.mouse.rel_move(*x, *y)?;
             }
+            Self::Scroll(ActionMove { x, y }) => app.mouse.scroll(*x, *y)?,
             Self::Sleep(ActionSleep { duration }) => std::thread::sleep(Duration::from_millis(*duration as u64)),
             Self::Grid(ActionGrid { w, h, x, y }) => {
                 app.rect = app.rect.divide(
